@@ -56,10 +56,16 @@ public class RuntimeUtils {
      * flag is false, you shouldn't try to use the the api at all.
      */
     public static boolean loaded = false;
+
     static {
+        String jnaNosys = System.getProperty("jna.nosys", "true");
+
         try {
-            //System.loadLibrary("jcocoa");
-            NativeUtils.loadLibraryFromJar("/libjcocoa.dylib");
+            if (! Boolean.parseBoolean(jnaNosys))
+                System.loadLibrary("jcocoa");
+            else
+                NativeUtils.loadLibraryFromJar("/libjcocoa.dylib");
+
             loaded = true;
         } catch (UnsatisfiedLinkError err){
             err.printStackTrace(System.err);
