@@ -72,7 +72,6 @@
 		398F66B722CBD46300B9E1B6 /* libjcocoaTests.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = libjcocoaTests.h; path = src/test/objectivec/libjcocoaTests.h; sourceTree = "<group>"; };
 		398F66B922CBD46E00B9E1B6 /* libjcocoaTests-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "libjcocoaTests-Info.plist"; path = "src/test/resources/libjcocoaTests-Info.plist"; sourceTree = "<group>"; };
 		398F66BA22CBD46E00B9E1B6 /* en.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; name = en.lproj; path = src/test/resources/en.lproj; sourceTree = "<group>"; };
-		6508F914163A015D009222BB /* JavaNativeFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = JavaNativeFoundation.framework; sourceTree = "<group>"; };
 		65152904163458B4002A41D8 /* libjcocoa.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; path = libjcocoa.dylib; sourceTree = BUILT_PRODUCTS_DIR; };
 		65152907163458B4002A41D8 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		6515290A163458B4002A41D8 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
@@ -173,7 +172,6 @@
 		6508F913163A015D009222BB /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				6508F914163A015D009222BB /* JavaNativeFoundation.framework */,
 			);
 			name = Frameworks;
 			path = ../../../../../../System/Library/Frameworks/JavaVM.framework/Versions/A/Frameworks;
@@ -424,7 +422,7 @@
 				);
 				"HEADER_SEARCH_PATHS[arch=*]" = "";
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
-				ONLY_ACTIVE_ARCH = YES;
+				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -433,6 +431,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";

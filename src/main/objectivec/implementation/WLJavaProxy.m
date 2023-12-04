@@ -7,11 +7,13 @@
 //
 
 #import "WLJavaProxy.h"
-#include <JavaNativeFoundation/JavaNativeFoundation.h>
 #include "JavaUtil.h"
 
 static JavaVM *jvm = NULL;
 
+unsigned long acceptNSRange(NSRange range) {
+    return range.length + range.location;
+}
 
 @implementation WLJavaProxy
 

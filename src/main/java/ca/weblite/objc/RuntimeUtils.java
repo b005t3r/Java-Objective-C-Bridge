@@ -1,10 +1,15 @@
 package ca.weblite.objc;
 
 
-import ca.weblite.nativeutils.NativeUtils;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
-import com.sun.jna.Union;
 import com.sun.jna.ptr.ByReference;
 import com.sun.jna.ptr.ByteByReference;
 import com.sun.jna.ptr.DoubleByReference;
@@ -13,15 +18,8 @@ import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.LongByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.ptr.ShortByReference;
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.BitSet;
-import java.util.List;
-import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
+import ca.weblite.nativeutils.NativeUtils;
 
 /**
  * A Java class with static methods that interact with the Objective-C runtime.
@@ -48,7 +46,7 @@ public class RuntimeUtils {
     /**
      * Short reference to the runtime instance for interacting with Objective-C
      */
-    public static Runtime rt = Runtime.INSTANCE;
+    private static final Runtime rt = Runtime.INSTANCE;
     
     /**
      * Flag to indicate whether the jcocoa native library was loaded successfully.
@@ -61,22 +59,33 @@ public class RuntimeUtils {
         String jnaNosys = System.getProperty("jna.nosys", "true");
 
         try {
-            if (! Boolean.parseBoolean(jnaNosys))
+            if (!Boolean.parseBoolean(jnaNosys))
                 System.loadLibrary("jcocoa");
             else
                 NativeUtils.loadLibraryFromJar("/libjcocoa.dylib");
 
             loaded = true;
-        } catch (UnsatisfiedLinkError err){
+        } catch (UnsatisfiedLinkError err) {
             err.printStackTrace(System.err);
         } catch (IOException ex) {
             ex.printStackTrace(System.err);
         }
+
         init();
     }
+
+    private RuntimeUtils() {
+    }
     
-    
-    
+    static {
+        String libraryPath = "/libjcocoa.dylib";
+        try {
+            NativeUtils.loadLibraryFromJar(libraryPath);
+            init();
+        } catch (IOException ioException) {
+            throw new UncheckedIOException("Failed loading library " + libraryPath, ioException);
+        }
+    }
     
     /**
      * Returns a pointer to the class for specific class name.
@@ -237,8 +246,121 @@ public class RuntimeUtils {
      * @param receiver a {@link com.sun.jna.Pointer} object.
      */
     public static long msg(Pointer receiver, String msg, Object... args){
-        return rt.objc_msgSend(receiver, sel(msg), args);
+        return objc_msgSend(receiver, sel(msg), args);
+
+
     }
+
+    /**
+     * Generate the Runtime class name suffix in RuntimeMappings that defines
+     * the appropriate version of objc_msgSend for the given arguments.
+     * @param args The arguments to check.
+     * @return The suffix.  This will be a binary string in which a 1 in the i'th
+     *  index corresponds with a Structure.ByValue parameter.
+     */
+    private static String getArgsSuffix(Object... args) {
+        StringBuilder sb = new StringBuilder();
+
+        boolean foundStructByValue = false;
+        for (Object o : args) {
+            if (o instanceof Structure.ByValue) {
+                foundStructByValue = true;
+                sb.append("1");
+            } else {
+                sb.append("0");
+            }
+        }
+        if (foundStructByValue) {
+            return sb.toString();
+        }
+        return "";
+    }
+
+    /**
+     * Gets the parameter types a call to objc_msgSend should use, including the first two
+     * Pointer parameers.
+     * @param args The input arguments.
+     * @return The corresponding class types.  The output array will be longer than the input array by two, because
+     *  of the two Pointer parameters at the beginning.
+     */
+    private static Class<?>[] getArgsParamTypes( Object... args) {
+        Class<?>[] out = new Class<?>[args.length+2];
+        out[0] = Pointer.class;
+        out[1] = Pointer.class;
+        for (int i=0; i<args.length; i++) {
+            out[i+2] = (args[i] instanceof Structure.ByValue) ? Structure.ByValue.class: Object.class;
+        }
+        return out;
+    }
+
+    /**
+     * Merges the parameters into a single array, for use in the {@link #objc_msgSend(Pointer, Pointer, Object...)}
+     * method.
+     * @param receiver The receiver of the message.
+     * @param selector THe selector to call.
+     * @param args The arguments.
+     * @return The full parameter array.
+     */
+    private static Object[] merge(Pointer receiver, Pointer selector, Object... args) {
+        Object[] out = new Object[args.length+2];
+        out[0] = receiver;
+        out[1] = selector;
+        for (int i=0; i<args.length; i++) {
+            out[i+2] = args[i];
+        }
+        return out;
+    }
+
+    /**
+     *  A wrapper around the obj_msgSend() method to do preprocessing, and call the correct
+     *  variant.  If any of the parameters are {@link Structure.ByValue}, then the dispatch will
+     *  use reflection to find the correct JNA mapping.
+     * @param receiver The receiver
+     * @param selector The selector
+     * @param args The arguments
+     * @return The output
+     */
+    private static long objc_msgSend(Pointer receiver, Pointer selector, Object... args) {
+
+        String argSuffix = getArgsSuffix(args);
+        if (args.length <= 7 && argSuffix.isEmpty()) {
+            switch (args.length) {
+                case 0:
+                    return rt.objc_msgSend(receiver, selector);
+                case 1:
+                    return rt.objc_msgSend(receiver, selector, args[0]);
+                case 2:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1]);
+                case 3:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1], args[2]);
+                case 4:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3]);
+                case 5:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4]);
+                case 6:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5]);
+                case 7:
+                    return rt.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                default:
+                    throw new IllegalArgumentException("msg currently supports max 4 args");
+            }
+        } else {
+            try {
+
+                Class runtimeClass = RuntimeUtils.class.getClassLoader().loadClass("ca.weblite.objc.RuntimeMappings$Runtime"+argSuffix);
+                Field runtimeInstanceField = runtimeClass.getField("INSTANCE");
+                Object runtimeInstance = runtimeInstanceField.get(null);
+
+
+
+                return (long)runtimeClass.getMethod("objc_msgSend", getArgsParamTypes(args)).invoke(runtimeInstance, merge(receiver, selector, args));
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+
+    }
+
     
     /**
      * Sends a message to a specified class using the given selector.
@@ -260,7 +382,10 @@ public class RuntimeUtils {
      * @param selector a {@link com.sun.jna.Pointer} object.
      */
     public static long msg(Pointer receiver, Pointer selector, Object... args){
-        return rt.objc_msgSend(receiver, selector, args);
+
+        long out = objc_msgSend(receiver, selector, args);
+
+        return out;
     }
     
     /**
@@ -320,7 +445,9 @@ public class RuntimeUtils {
      * Wrapper around msg() that returns an int. This should only be used for
      * sending messages that return int-compatible numeric values.  E.g.
      * byte, bool, long, int, short.  Do not use this if the message will return
-     * something else (like a float, double, string, or pointer).
+     * something else (like a float, double, string, or pointer). Narrowing
+     * primitive conversion will be applied; this will cause information loss
+     * if the {@code long} result does not fit in the {@code int} value range.
      *
      * @param receiver The target of the message.
      * @param selector The selector for the message.
@@ -329,7 +456,7 @@ public class RuntimeUtils {
      */
     public static int msgInt(Pointer receiver, Pointer selector, Object... args){
         long res = msg(receiver, selector, args);
-        return new Long(res).intValue();
+        return (int) res;
     }
     
     /**
@@ -390,7 +517,7 @@ public class RuntimeUtils {
      */
     public static boolean msgBoolean(Pointer receiver, Pointer selector, Object... args){
         long res = msg(receiver, selector, args);
-        return res > 0L ? true : false;
+        return res > 0L;
     }
     
     /**
@@ -515,7 +642,69 @@ public class RuntimeUtils {
      * @return The double return value of the message
      */
     public static double msgDouble(Pointer receiver, Pointer selector, Object... args){
-        return rt.objc_msgSend_fpret(receiver, selector, args);
+        return objc_msgSend_fpret(receiver, selector, args);
+    }
+
+    /**
+     * Flag to check if this is apple silicon. (arm64)
+     */
+    private static boolean isArm64 = System.getProperty("os.arch").equals("aarch64");
+
+    /**
+     * A wrapper for the objc_msgSend_fpret method.  Since this method is not available
+     * in arm64, this will use a JNA mapping of objc_msgSend which returns double on that platform.
+     * On Intel, it will dispatch to the correct objc_msgSend_fpret mapping, according to parameter.
+     * @param receiver The receiver.
+     * @param selector The selector.
+     * @param args Arguments
+     * @return The result.
+     */
+    private static double objc_msgSend_fpret(Pointer receiver, Pointer selector, Object... args) {
+        if (isArm64) {
+            switch (args.length) {
+                case 0:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector);
+                case 1:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0]);
+                case 2:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1]);
+                case 3:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1], args[2]);
+
+                case 4:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3]);
+                case 5:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4]);
+                case 6:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5]);
+                case 7:
+                    return RuntmeArm64Extensions.INSTANCE.objc_msgSend(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                default:
+                    throw new IllegalArgumentException("objc_msgSend does not support "+args.length+" arguments yet");
+            }
+
+        }
+        switch (args.length) {
+            case 0:
+                return rt.objc_msgSend_fpret(receiver, selector);
+            case 1:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0]);
+            case 2:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1]);
+            case 3:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1], args[2]);
+
+            case 4:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1], args[2], args[3]);
+            case 5:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1], args[2], args[3], args[4]);
+            case 6:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5]);
+            case 7:
+                return rt.objc_msgSend_fpret(receiver, selector, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+            default:
+                throw new IllegalArgumentException("objc_msgSend_fpret does not support "+args.length+" arguments yet");
+        }
     }
     
     /**
@@ -562,7 +751,13 @@ public class RuntimeUtils {
     public static double msgDouble(Pointer receiver, String selector, Object... args){
         return msgDouble(receiver, sel(selector), args);
     }
-    
+
+    private static void sleep50() {
+        try {
+            Thread.sleep(500);
+        } catch (Exception ex){}
+    }
+
     /**
      * Sends a message with the option of coercing the inputs and outputs. This variant
      * uses a higher level of abstraction than the standard msg() and msgXXX() methods.
@@ -585,12 +780,14 @@ public class RuntimeUtils {
      *  on the return type of the message.
      */
     public static Object msg(boolean coerceReturn, boolean coerceArgs, Pointer receiver, Pointer selector, Object... args){
-        Object[] originalArgs = args;
-        
+
         Pointer methodSignature = msgPointer(receiver, "methodSignatureForSelector:", selector);
+        if (Pointer.nativeValue(methodSignature) == 0L) {
+            throw new RuntimeException(new NoSuchMethodException("Method cannot be found for signature "+Pointer.nativeValue(selector)));
+        }
        
         int numArgs = (int)msg(methodSignature, "numberOfArguments");
-        if ( numArgs ==2   &&  numArgs != args.length+2 ){
+        if ( numArgs >=2   &&  numArgs != args.length+2 ){
             throw new RuntimeException("Wrong argument count.  The selector "+selName(selector)+" requires "+(numArgs-2)+" arguments, but received "+args.length);
         }
         
@@ -603,15 +800,10 @@ public class RuntimeUtils {
         
         
         if ( coerceArgs && args.length > 0 ){
-            originalArgs = Arrays.copyOf(args, args.length);
-            
             for ( int i=0; i<args.length; i++ ){
-                ByteByReference out = new ByteByReference();
-                
-                long out2 = (long)msg(methodSignature, "getArgumentTypeAtIndex:", i+2);
+                long out2 = msg(methodSignature, "getArgumentTypeAtIndex:", i+2);
                 String argumentTypeSignature = new Pointer(out2).getString(0);
                 args[i] = TypeMapper.getInstance().jToC(args[i], argumentTypeSignature, TypeMapper.getInstance());
-                
             }
         }
         
@@ -628,7 +820,7 @@ public class RuntimeUtils {
             returnTypeSignature = returnTypeSignature.substring(offset);
         }
         
-        String returnTypeFirstChar = returnTypeSignature.substring(0,1);
+        char returnTypeFirstChar = returnTypeSignature.charAt(0);
         if ( "[{(".indexOf(returnTypeFirstChar) ==-1 ){
             // We are not returning a structure so we'll just
             // do the message.
@@ -658,16 +850,12 @@ public class RuntimeUtils {
             }
         }
         
-        
+
         Object output =  msg(receiver, selector, args);
         for ( int i=0; i<args.length; i++){
             Proxy.release(args[i]);
         }
         return output;
-        
-        
-        
-        
     }
     
     
@@ -736,7 +924,7 @@ public class RuntimeUtils {
                  
                  try {
                     
-                    m.result = msg(coerceOutput, coerceInput, m.receiver, m.selector, m.args.toArray(new Object[m.args.size()]));
+                    m.result = msg(coerceOutput, coerceInput, m.receiver, m.selector, m.args.toArray());
                  } catch (Exception ex){
                      m.error = ex;
                  }
@@ -813,114 +1001,91 @@ public class RuntimeUtils {
             signature = signature.substring(offset);
         }
         
-        String firstChar = signature.substring(0,1);
-        String numeric = "iIsSlLqQfd";
-        
-       
-        
-        
-        //String firstChar = signature.substring(0,1);
         switch ( signature.charAt(0)){
             case 'i':
             case 'I':
-                if ( !int.class.isInstance(val) ){
-                    if ( Number.class.isInstance(val) ){
-                        val = ((Number)val).intValue();
-                    } else if ( String.class.isInstance(val)){
-                        val = Integer.parseInt((String)val);
-                    } else {
-                        throw new RuntimeException("Attempt to pass ineligible value to int: "+val);
-                    }
+                int intVal;
+                if (val instanceof Number) {
+                    intVal = ((Number) val).intValue();
+                } else if (val instanceof String) {
+                    intVal = Integer.parseInt((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to int: "+val);
                 }
-                return new IntByReference((Integer)val);
+                return new IntByReference(intVal);
             case 's':
             case 'S':
-                if ( !short.class.isInstance(val) ){
-                    if ( Number.class.isInstance(val) ){
-                        val = ((Number)val).shortValue();
-                    } else if ( String.class.isInstance(val)){
-                        val = new Integer(Integer.parseInt((String)val)).shortValue();
-                    } else {
-                        throw new RuntimeException("Attempt to pass ineligible value to short: "+val);
-                    }
+                short shortVal;
+                if (val instanceof Number) {
+                    shortVal = ((Number) val).shortValue();
+                } else if (val instanceof String) {
+                    shortVal = Short.parseShort((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to short: "+val);
                 }
-                return new ShortByReference((Short)val);
+                return new ShortByReference(shortVal);
                 
             case 'l':
             case 'L':
             case 'q':
             case 'Q':
-                if ( !long.class.isInstance(val) ){
-                    if ( Number.class.isInstance(val) ){
-                        val = ((Number)val).longValue();
-                    } else if ( String.class.isInstance(val)){
-                        val = new Long(Long.parseLong((String)val)).longValue();
-                    } else {
-                        throw new RuntimeException("Attempt to pass ineligible value to long: "+val);
-                    }
+                long longVal;
+                if (val instanceof Number) {
+                    longVal = ((Number) val).longValue();
+                } else if (val instanceof String) {
+                    longVal = Long.parseLong((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to long: "+val);
                 }
-                return new LongByReference((Long)val);
+                return new LongByReference(longVal);
                 
             case 'f':
-                if ( !float.class.isInstance(val) ){
-                    if ( Number.class.isInstance(val) ){
-                        val = ((Number)val).floatValue();
-                    } else if ( String.class.isInstance(val)){
-                        val = new Float(Float.parseFloat((String)val)).floatValue();
-                    } else {
-                        throw new RuntimeException("Attempt to pass ineligible value to long: "+val);
-                    }
+                float floatVal;
+                if (val instanceof Number) {
+                    floatVal = ((Number) val).floatValue();
+                } else if (val instanceof String) {
+                    floatVal = Float.parseFloat((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to float: "+val);
                 }
-                return new FloatByReference((Float)val);
+                return new FloatByReference(floatVal);
                 
             case 'd':
-                if ( !double.class.isInstance(val) ){
-                    if ( Number.class.isInstance(val) ){
-                        val = ((Number)val).doubleValue();
-                    } else if ( String.class.isInstance(val)){
-                        val = new Double(Double.parseDouble((String)val)).doubleValue();
-                    } else {
-                        throw new RuntimeException("Attempt to pass ineligible value to long: "+val);
-                    }
+                double doubleVal;
+                if (val instanceof Number) {
+                    doubleVal = ((Number) val).doubleValue();
+                } else if (val instanceof String) {
+                    doubleVal = Double.parseDouble((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to double: "+val);
                 }
-                return new DoubleByReference((Double)val);
+                return new DoubleByReference(doubleVal);
             case 'B':
             case 'b':
             case 'c':
             case 'C':
-            	if (Boolean.class.isInstance(val)) {
-    				val = (byte) (Boolean.TRUE.equals(val) ? 1 : 0);
-    			} else if (Number.class.isInstance(val)) {
-    				val = ((Number) val).byteValue();
-    			} else if (String.class.isInstance(val)) {
-    				val = new Byte(Byte.parseByte((String) val)).byteValue();
-    			} else {
-    				throw new RuntimeException("Attempt to pass ineligible value to byte: " + val);
-    			}
-    			return new ByteByReference((Byte) val);
+                byte byteVal;
+                if (val instanceof Boolean) {
+                    byteVal = (byte) (Boolean.TRUE.equals(val) ? 1 : 0);
+                } else if (val instanceof Number) {
+                    byteVal = ((Number) val).byteValue();
+                } else if (val instanceof String) {
+                    byteVal = Byte.parseByte((String) val);
+                } else {
+                    throw new RuntimeException("Attempt to pass ineligible value to byte: " + val);
+                }
+                return new ByteByReference(byteVal);
             case 'v':
                 return null;
             case '^':
             default:
-                ////System.out.println("Outputting pointer by reference for value "+val+" and signature "+signature);
-                if ( val == null ){
-                    try {
-                        throw new RuntimeException("Checking stack trace for val "+val+" and signature "+signature);
-                        
-                    } catch (Exception ex){
-                        ex.printStackTrace(System.err);
-                    }
-                }
-                if ( Pointer.class.isInstance(val) ){
+                if (val instanceof Pointer) {
                     return new PointerByReference((Pointer)val);
-                } else if ( Long.class.isInstance(val) || long.class.isInstance(val)){
-                    return new PointerByReference(new Pointer((Long)val));
+                } else if (val instanceof Long) {
+                    return new PointerByReference(new Pointer((Long) val));
                 } else {
                     throw new RuntimeException("Don't know what to do for conversion of value "+val+" and signature "+signature);
-                }
-                
-            
-                
+                }      
         }
         
     }
@@ -929,7 +1094,7 @@ public class RuntimeUtils {
      * Initializes the libjcocoa library.  This is called when the class is first
      * loaded.  It sets up the JNI environment that will be used there forward.
      */
-    public static native void init();
+    private static native void init();
     
     /**
      * Registers a Java object with the Objective-C runtime so that it can begin
