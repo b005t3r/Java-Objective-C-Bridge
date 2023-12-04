@@ -1,7 +1,8 @@
 package ca.weblite.objc.mappers;
 
-import ca.weblite.objc.TypeMapping;
 import com.sun.jna.Pointer;
+
+import ca.weblite.objc.TypeMapping;
 
 /**
  * <p>StringMapping class.</p>
@@ -10,16 +11,19 @@ import com.sun.jna.Pointer;
  * @version $Id: $Id
  * @since 1.1
  */
-public class StringMapping implements TypeMapping{
-
-    /** {@inheritDoc} */
+public class StringMapping implements TypeMapping {
+    /**
+     * Singleton instance.
+     */
+    public static final StringMapping INSTANCE = new StringMapping();
+    
+    private StringMapping() { }
+    
     @Override
     public Object cToJ(Object cVar, String signature, TypeMapping root) {
-        System.out.println("Mapping string from cVar");
         return new Pointer((Long)cVar).getString(0);
     }
 
-    /** {@inheritDoc} */
     @Override
     public Object jToC(Object jVar, String signature, TypeMapping root) {
         return jVar;
