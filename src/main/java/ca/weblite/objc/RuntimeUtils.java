@@ -77,16 +77,6 @@ public class RuntimeUtils {
     private RuntimeUtils() {
     }
     
-    static {
-        String libraryPath = "/libjcocoa.dylib";
-        try {
-            NativeUtils.loadLibraryFromJar(libraryPath);
-            init();
-        } catch (IOException ioException) {
-            throw new UncheckedIOException("Failed loading library " + libraryPath, ioException);
-        }
-    }
-    
     /**
      * Returns a pointer to the class for specific class name.
      * <pre>
